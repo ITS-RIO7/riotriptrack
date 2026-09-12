@@ -1,0 +1,7 @@
+{
+  "name": "Trip Tracker",
+  "description": "Track trips and phone location history with offline map timeline, speed stats, stay duration analysis, and Google account backup.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
