@@ -3,7 +3,7 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/trip_tracker_icon_1788343891805"
+        android:drawable="@drawable/rio_trip_tracker_icon_1789372089877"
         android:gravity="center" />
 </layer-list>
 

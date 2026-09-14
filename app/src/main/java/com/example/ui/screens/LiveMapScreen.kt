@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -46,6 +48,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,8 +86,14 @@ fun LiveMapScreen(
     modifier: Modifier = Modifier
 ) {
     val liveState by viewModel.liveTrackingState.collectAsState()
+    val deviceLocation by viewModel.deviceCurrentLocation.collectAsState()
+    val currentAddress by viewModel.currentAddress.collectAsState()
     val context = LocalContext.current
     var selectedMapTheme by remember { mutableStateOf(MapThemeMode.ROADS_AND_NAMES_ONLY) }
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshCurrentLocation()
+    }
 
     val travelModes = listOf(
         TravelModeItem("Walk", "🚶", "Walk", "4-6 km/h"),
@@ -120,6 +129,8 @@ fun LiveMapScreen(
         OfflineMapView(
             points = liveState.recentPoints,
             activeLivePoint = currentPoint,
+            currentLocationPoint = deviceLocation,
+            showRioLogo = true,
             modifier = Modifier.fillMaxSize(),
             showControls = true,
             isInteractive = true,
@@ -181,6 +192,53 @@ fun LiveMapScreen(
                             fontWeight = FontWeight.Medium,
                             color = AccentTeal
                         )
+                    }
+                }
+            }
+
+            // Standalone Live Current Location Status Card (when not recording)
+            if (!liveState.isTracking && deviceLocation != null) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = DarkSurface.copy(alpha = 0.95f),
+                    border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.45f)),
+                    shadowElevation = 5.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(PrimaryBlue.copy(alpha = 0.35f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = AccentCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "LIVE CURRENT LOCATION",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AccentCyan,
+                                letterSpacing = 0.8.sp
+                            )
+                            Text(
+                                text = currentAddress ?: "Lat: %.4f, Lng: %.4f".format(deviceLocation!!.latitude, deviceLocation!!.longitude),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }

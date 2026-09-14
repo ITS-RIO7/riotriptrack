@@ -22,7 +22,7 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Trip Tracker"
+rootProject.name = "Rio Trip Tracker"
 
 
 include(":app")

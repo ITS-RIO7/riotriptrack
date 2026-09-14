@@ -1,6 +1,6 @@
 {
-  "name": "Trip Tracker",
-  "description": "Track trips and phone location history with offline map timeline, speed stats, stay duration analysis, and Google account backup.",
+  "name": "Rio Trip Tracker",
+  "description": "Real-time Rio GPS route tracker with live location, route timeline, speed stats, stay duration analysis, and cloud backup.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

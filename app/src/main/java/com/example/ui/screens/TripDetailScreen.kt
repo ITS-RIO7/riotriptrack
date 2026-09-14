@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -78,6 +79,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.LocationPointEntity
+import com.example.data.model.MilestoneType
+import com.example.data.model.TripTimelineMilestone
 import com.example.ui.components.OfflineMapView
 import com.example.ui.components.SpeedAltitudeChart
 import com.example.ui.dialogs.TripEditDialog
@@ -111,6 +114,8 @@ fun TripDetailScreen(
     val scrubberProgress by viewModel.scrubberProgress.collectAsState()
     val isPlayingTimeline by viewModel.isPlayingTimeline.collectAsState()
     val selectedPoint by viewModel.selectedPoint.collectAsState()
+    val timelineMilestones by viewModel.timelineMilestones.collectAsState()
+    val selectedMilestone by viewModel.selectedMilestone.collectAsState()
 
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -258,6 +263,12 @@ fun TripDetailScreen(
 
                         OfflineMapView(
                             points = points,
+                            timelineMilestones = timelineMilestones,
+                            selectedMilestone = selectedMilestone,
+                            onMilestoneClick = { milestone ->
+                                viewModel.selectMilestone(milestone)
+                            },
+                            showRioLogo = true,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(if (isMapExpanded) 420.dp else 270.dp),
@@ -395,7 +406,189 @@ fun TripDetailScreen(
                 )
             }
 
-            // 4. Stay / Visited Places Breakdown
+            // 4a. Comprehensive Journey Timeline ("Kahan Kahan Gaya")
+            if (timelineMilestones.isNotEmpty()) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("journey_timeline_card")
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .background(AccentCyan.copy(alpha = 0.2f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(text = "🗺️", fontSize = 14.sp)
+                                    }
+                                    Column {
+                                        Text(
+                                            text = "Journey Timeline (Kahan Kahan Gaya)",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "${timelineMilestones.size} key milestones · Tap to view on map",
+                                            fontSize = 11.sp,
+                                            color = Color.LightGray
+                                        )
+                                    }
+                                }
+
+                                if (selectedMilestone != null) {
+                                    TextButton(
+                                        onClick = { viewModel.selectMilestone(null) }
+                                    ) {
+                                        Text("Reset View", fontSize = 11.sp, color = AccentCyan)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            timelineMilestones.forEachIndexed { index, milestone ->
+                                val isSelected = (milestone.id == selectedMilestone?.id)
+                                val isLast = (index == timelineMilestones.size - 1)
+
+                                val milestoneColor = when (milestone.type) {
+                                    MilestoneType.START -> SuccessGreen
+                                    MilestoneType.FINISH -> DangerRed
+                                    MilestoneType.STAY_STOP -> PurpleAccent
+                                    MilestoneType.FASTEST_POINT -> AccentCyan
+                                    MilestoneType.CHECKPOINT -> PrimaryBlueLight
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (isSelected) AccentCyan.copy(alpha = 0.16f) else Color.Transparent
+                                        )
+                                        .clickable { viewModel.selectMilestone(milestone) }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                                        .testTag("milestone_item_${milestone.id}"),
+                                    verticalAlignment = Alignment.Top,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    // Vertical Rail Line + Indicator Node
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = if (isSelected) milestoneColor else milestoneColor.copy(alpha = 0.25f),
+                                            border = BorderStroke(
+                                                width = if (isSelected) 2.dp else 1.dp,
+                                                color = milestoneColor
+                                            ),
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text(
+                                                    text = when (milestone.type) {
+                                                        MilestoneType.START -> "S"
+                                                        MilestoneType.FINISH -> "F"
+                                                        else -> "#${milestone.sequenceNumber}"
+                                                    },
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isSelected) Color.Black else Color.White
+                                                )
+                                            }
+                                        }
+
+                                        if (!isLast) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(2.dp)
+                                                    .height(30.dp)
+                                                    .background(Color.White.copy(alpha = 0.15f))
+                                            )
+                                        }
+                                    }
+
+                                    // Content Details
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = milestone.title,
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (isSelected) AccentCyan else Color.White
+                                            )
+
+                                            Text(
+                                                text = milestone.timeFormatted,
+                                                fontSize = 11.sp,
+                                                color = Color.LightGray,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(2.dp))
+
+                                        Text(
+                                            text = milestone.subtitle,
+                                            fontSize = 11.5.sp,
+                                            color = if (isSelected) Color.White else Color(0xFF94A3B8)
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.padding(top = 2.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            if (milestone.distanceKmFromStart > 0) {
+                                                Text(
+                                                    text = "+%.2f km".format(milestone.distanceKmFromStart),
+                                                    fontSize = 10.5.sp,
+                                                    color = PrimaryBlueLight
+                                                )
+                                            }
+                                            if (milestone.speedKmh > 0) {
+                                                Text(
+                                                    text = "• %.1f km/h".format(milestone.speedKmh),
+                                                    fontSize = 10.5.sp,
+                                                    color = AccentCyan
+                                                )
+                                            }
+                                            if (!milestone.durationFormatted.isNullOrBlank()) {
+                                                Text(
+                                                    text = "• ${milestone.durationFormatted}",
+                                                    fontSize = 10.5.sp,
+                                                    color = PurpleAccent,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4b. Stay / Visited Places Breakdown
             item {
                 Card(
                     shape = RoundedCornerShape(18.dp),

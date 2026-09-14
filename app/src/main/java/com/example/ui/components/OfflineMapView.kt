@@ -82,11 +82,15 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.LocationPointEntity
+import com.example.data.model.MilestoneType
+import com.example.data.model.TripTimelineMilestone
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.AccentTeal
 import com.example.ui.theme.DangerRed
@@ -130,6 +134,11 @@ fun OfflineMapView(
     points: List<LocationPointEntity>,
     modifier: Modifier = Modifier,
     activeLivePoint: LocationPointEntity? = null,
+    currentLocationPoint: LocationPointEntity? = null,
+    timelineMilestones: List<TripTimelineMilestone> = emptyList(),
+    selectedMilestone: TripTimelineMilestone? = null,
+    onMilestoneClick: ((TripTimelineMilestone) -> Unit)? = null,
+    showRioLogo: Boolean = true,
     scrubberProgress: Float? = null,
     onScrubPointSelected: ((LocationPointEntity?) -> Unit)? = null,
     showControls: Boolean = true,
@@ -156,7 +165,7 @@ fun OfflineMapView(
     var mapTheme by remember { mutableStateOf(initialTheme) }
     var selectedPoint by remember { mutableStateOf<LocationPointEntity?>(null) }
     var showThemeMenu by remember { mutableStateOf(false) }
-    var followUser by remember { mutableStateOf(activeLivePoint != null) }
+    var followUser by remember { mutableStateOf(activeLivePoint != null || currentLocationPoint != null) }
 
     val allPoints = remember(points, activeLivePoint) {
         if (activeLivePoint != null) points + activeLivePoint else points
@@ -170,6 +179,8 @@ fun OfflineMapView(
     var centerLat by remember { mutableDoubleStateOf(37.7749) }
     var centerLng by remember { mutableDoubleStateOf(-122.4194) }
     var zoom by remember { mutableFloatStateOf(14.5f) }
+
+    val targetLivePoint = activeLivePoint ?: currentLocationPoint
 
     // Helper to calculate bounds and fit points
     val fitBoundsToPoints = {
@@ -194,27 +205,45 @@ fun OfflineMapView(
             // Approximate optimal zoom based on span
             val computedZoom = (ln(360.0 / (maxSpan * 2.8)) / ln(2.0)).toFloat()
             zoom = computedZoom.coerceIn(3.0f, 17.5f)
-        } else if (activeLivePoint != null) {
-            centerLat = activeLivePoint.latitude
-            centerLng = activeLivePoint.longitude
+        } else if (targetLivePoint != null) {
+            centerLat = targetLivePoint.latitude
+            centerLng = targetLivePoint.longitude
             zoom = 15.5f
         }
     }
 
     // Initial setup on launch or points change
     var hasInitializedCenter by remember { mutableStateOf(false) }
-    LaunchedEffect(allPoints.size) {
-        if (!hasInitializedCenter && allPoints.isNotEmpty()) {
-            fitBoundsToPoints()
-            hasInitializedCenter = true
+    LaunchedEffect(allPoints.size, targetLivePoint?.latitude, targetLivePoint?.longitude) {
+        if (!hasInitializedCenter) {
+            if (allPoints.isNotEmpty()) {
+                fitBoundsToPoints()
+                hasInitializedCenter = true
+            } else if (targetLivePoint != null) {
+                centerLat = targetLivePoint.latitude
+                centerLng = targetLivePoint.longitude
+                zoom = 15.5f
+                hasInitializedCenter = true
+            }
         }
     }
 
-    // Follow user in live tracking
-    LaunchedEffect(activeLivePoint?.latitude, activeLivePoint?.longitude, followUser) {
-        if (followUser && activeLivePoint != null) {
-            centerLat = activeLivePoint.latitude
-            centerLng = activeLivePoint.longitude
+    // Follow user in live tracking or current location mode
+    LaunchedEffect(targetLivePoint?.latitude, targetLivePoint?.longitude, followUser) {
+        if (followUser && targetLivePoint != null) {
+            centerLat = targetLivePoint.latitude
+            centerLng = targetLivePoint.longitude
+        }
+    }
+
+    // Center on selected milestone
+    LaunchedEffect(selectedMilestone) {
+        if (selectedMilestone != null) {
+            followUser = false
+            centerLat = selectedMilestone.point.latitude
+            centerLng = selectedMilestone.point.longitude
+            zoom = 16.5f
+            selectedPoint = selectedMilestone.point
         }
     }
 
@@ -257,7 +286,7 @@ fun OfflineMapView(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(getMapBgColor(mapTheme))
-            .pointerInput(isInteractive, allPoints, zoom, centerLat, centerLng) {
+            .pointerInput(isInteractive, allPoints, timelineMilestones, zoom, centerLat, centerLng) {
                 if (isInteractive) {
                     detectTapGestures(
                         onDoubleTap = { tapOffset ->
@@ -265,6 +294,22 @@ fun OfflineMapView(
                             zoom = (zoom + 1.2f).coerceAtMost(19.0f)
                         },
                         onTap = { tapOffset ->
+                            // Check milestones first
+                            if (timelineMilestones.isNotEmpty()) {
+                                val (cwx, cwy) = MercatorProjection.latLngToWorld(centerLat, centerLng, zoom)
+                                for (m in timelineMilestones) {
+                                    val (wx, wy) = MercatorProjection.latLngToWorld(m.point.latitude, m.point.longitude, zoom)
+                                    val sx = (size.width / 2f + (wx - cwx)).toFloat()
+                                    val sy = (size.height / 2f + (wy - cwy)).toFloat()
+                                    val distSq = (sx - tapOffset.x) * (sx - tapOffset.x) + (sy - tapOffset.y) * (sy - tapOffset.y)
+                                    if (distSq < (44 * density) * (44 * density)) {
+                                        selectedPoint = m.point
+                                        onMilestoneClick?.invoke(m)
+                                        return@detectTapGestures
+                                    }
+                                }
+                            }
+
                             // Hit test closest point in route
                             val tappedPt = findClosestPoint(
                                 tapOffset = tapOffset,
@@ -478,6 +523,92 @@ fun OfflineMapView(
                 }
             }
 
+            // 5b. Draw Standalone Live Current Location when not tracking active trip
+            if (activeLivePoint == null && currentLocationPoint != null) {
+                val curCenter = latLngToScreen(currentLocationPoint.latitude, currentLocationPoint.longitude)
+                if (curCenter.x in -80f..(width + 80f) && curCenter.y in -80f..(height + 80f)) {
+                    drawCircle(
+                        color = AccentCyan.copy(alpha = 0.22f),
+                        radius = 34.dp.toPx(),
+                        center = curCenter
+                    )
+                    drawCircle(
+                        color = PrimaryBlueLight.copy(alpha = 0.45f),
+                        radius = 20.dp.toPx(),
+                        center = curCenter
+                    )
+                    drawCircle(
+                        color = PrimaryBlue,
+                        radius = 10.dp.toPx(),
+                        center = curCenter
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = 4.5.dp.toPx(),
+                        center = curCenter
+                    )
+                    drawPinBadge(
+                        center = curCenter,
+                        label = "📍 YOU ARE HERE",
+                        badgeColor = AccentCyan
+                    )
+                }
+            }
+
+            // 5c. Draw Sequential Journey Milestones ("Kahan Kahan Gaya")
+            if (timelineMilestones.isNotEmpty()) {
+                for (m in timelineMilestones) {
+                    val mCenter = latLngToScreen(m.point.latitude, m.point.longitude)
+                    if (mCenter.x in -80f..(width + 80f) && mCenter.y in -80f..(height + 80f)) {
+                        val isSelected = (m.id == selectedMilestone?.id)
+                        val (pinColor, badgeLabel) = when (m.type) {
+                            MilestoneType.START -> Pair(SuccessGreen, "START")
+                            MilestoneType.FINISH -> Pair(DangerRed, "FINISH")
+                            MilestoneType.STAY_STOP -> Pair(PurpleAccent, "STOP #${m.sequenceNumber - 1}")
+                            MilestoneType.FASTEST_POINT -> Pair(AccentCyan, "%.0f km/h".format(m.speedKmh))
+                            MilestoneType.CHECKPOINT -> Pair(PrimaryBlueLight, "#${m.sequenceNumber}")
+                        }
+
+                        if (isSelected) {
+                            drawCircle(
+                                color = AccentCyan.copy(alpha = 0.45f),
+                                radius = 28.dp.toPx(),
+                                center = mCenter
+                            )
+                            drawCircle(
+                                color = Color.White.copy(alpha = 0.3f),
+                                radius = 18.dp.toPx(),
+                                center = mCenter
+                            )
+                        }
+
+                        drawCircle(
+                            color = pinColor.copy(alpha = 0.35f),
+                            radius = 16.dp.toPx(),
+                            center = mCenter
+                        )
+                        drawCircle(
+                            color = pinColor,
+                            radius = 8.5.dp.toPx(),
+                            center = mCenter
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = 3.5.dp.toPx(),
+                            center = mCenter
+                        )
+
+                        drawMilestoneBadge(
+                            center = mCenter,
+                            sequenceNumber = m.sequenceNumber,
+                            label = badgeLabel,
+                            badgeColor = pinColor,
+                            isSelected = isSelected
+                        )
+                    }
+                }
+            }
+
             // 6. Draw Scrubber Timeline Indicator Pin
             if (scrubbedPoint != null) {
                 val scrubCenter = latLngToScreen(scrubbedPoint.latitude, scrubbedPoint.longitude)
@@ -505,19 +636,66 @@ fun OfflineMapView(
                 width = width,
                 height = height
             )
+
+            // 8. Draw RIO Watermark on Map Canvas (Bottom Right)
+            if (showRioLogo) {
+                drawRioWatermark(width = width, height = height)
+            }
         }
 
-        // Top Floating Map Style Quick Switcher Chips
+        // Top Floating Map Style Quick Switcher Chips and RIO Logo Emblem
         if (showControls) {
-            Column(
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .padding(start = 10.dp, end = 10.dp, top = topPadding + 8.dp, bottom = 4.dp)
+                    .padding(start = 10.dp, end = 10.dp, top = topPadding + 8.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                if (showRioLogo) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = DarkSurface.copy(alpha = 0.95f),
+                        border = BorderStroke(1.2.dp, AccentCyan.copy(alpha = 0.75f)),
+                        shadowElevation = 6.dp,
+                        modifier = Modifier.testTag("rio_map_logo_badge")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .background(
+                                        brush = Brush.linearGradient(listOf(Color(0xFF00E5FF), Color(0xFF2563EB))),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "R",
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 11.sp
+                                )
+                            }
+                            Text(
+                                text = "RIO",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                                letterSpacing = 1.2.sp
+                            )
+                        }
+                    }
+                }
+
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .weight(1f)
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -563,6 +741,34 @@ fun OfflineMapView(
                     .padding(end = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // My Location / Center on Live GPS Location Button
+                if (targetLivePoint != null) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (followUser) PrimaryBlue else DarkSurface.copy(alpha = 0.92f),
+                        shadowElevation = 5.dp
+                    ) {
+                        IconButton(
+                            onClick = {
+                                followUser = true
+                                centerLat = targetLivePoint.latitude
+                                centerLng = targetLivePoint.longitude
+                                zoom = 16.5f
+                            },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .testTag("my_location_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MyLocation,
+                                contentDescription = "Center on My Location",
+                                tint = if (followUser) AccentCyan else Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
                 // Follow Me / Lock GPS Location Button (in live mode)
                 if (activeLivePoint != null) {
                     Surface(
@@ -967,6 +1173,66 @@ private fun DrawScope.drawPinBadge(
 
     nativeCanvas.drawText(label, badgeX, badgeY, shadowPaint)
     nativeCanvas.drawText(label, badgeX, badgeY, textPaint)
+}
+
+private fun DrawScope.drawMilestoneBadge(
+    center: Offset,
+    sequenceNumber: Int,
+    label: String,
+    badgeColor: Color,
+    isSelected: Boolean
+) {
+    val nativeCanvas = drawContext.canvas.nativeCanvas
+    val text = if (sequenceNumber > 1) "$sequenceNumber. $label" else label
+
+    val textPaint = Paint().apply {
+        isAntiAlias = true
+        color = android.graphics.Color.WHITE
+        textSize = (if (isSelected) 11f else 9.5f) * density
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+    val shadowPaint = Paint().apply {
+        isAntiAlias = true
+        color = if (isSelected) android.graphics.Color.argb(250, 0, 229, 255) else badgeColor.toArgb()
+        textSize = (if (isSelected) 11f else 9.5f) * density
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        style = Paint.Style.STROKE
+        strokeWidth = if (isSelected) 4.5f else 3.5f
+    }
+
+    val badgeX = center.x + 12.dp.toPx()
+    val badgeY = center.y - 8.dp.toPx()
+
+    nativeCanvas.drawText(text, badgeX, badgeY, shadowPaint)
+    nativeCanvas.drawText(text, badgeX, badgeY, textPaint)
+}
+
+private fun DrawScope.drawRioWatermark(width: Float, height: Float) {
+    val nativeCanvas = drawContext.canvas.nativeCanvas
+    val text = "RIO • TRIP TRACKER"
+
+    val shadowPaint = Paint().apply {
+        isAntiAlias = true
+        color = android.graphics.Color.argb(160, 0, 0, 0)
+        textSize = 10f * density
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        letterSpacing = 0.14f
+    }
+    val textPaint = Paint().apply {
+        isAntiAlias = true
+        color = android.graphics.Color.argb(190, 255, 255, 255)
+        textSize = 10f * density
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        letterSpacing = 0.14f
+    }
+
+    val x = width - 145.dp.toPx()
+    val y = height - 16.dp.toPx()
+
+    nativeCanvas.drawText(text, x, y, shadowPaint)
+    nativeCanvas.drawText(text, x, y, textPaint)
 }
 
 private fun DrawScope.drawStayCallout(
