@@ -54,7 +54,7 @@ object MercatorProjection {
 class MapTileProvider private constructor(context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val diskCacheDir = File(context.cacheDir, "slippy_map_tiles").apply { mkdirs() }
+    private val diskCacheDir = File(context.cacheDir, "slippy_tiles_v3").apply { mkdirs() }
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -67,22 +67,15 @@ class MapTileProvider private constructor(context: Context) {
     // In-flight download tracking to avoid duplicate concurrent requests
     private val pendingRequests = ConcurrentHashMap<String, Job>()
 
+    val tileUpdateTrigger = kotlinx.coroutines.flow.MutableStateFlow(0L)
     var onTileLoaded: (() -> Unit)? = null
 
     init {
-        // Automatically purge any old cached tiles that may contain "API key required" watermarks
+        // Automatically purge any old cached tiles and obsolete directories containing legacy watermarks
         scope.launch {
             try {
-                diskCacheDir.listFiles()?.forEach { file ->
-                    // Purge old carto tiles
-                    if (file.name.contains("carto", ignoreCase = true) ||
-                        file.name.startsWith("ROADS_AND_NAMES_ONLY_") ||
-                        file.name.startsWith("DARK_NAV_") ||
-                        file.name.startsWith("DAYLIGHT_")
-                    ) {
-                        file.delete()
-                    }
-                }
+                File(context.cacheDir, "slippy_map_tiles").deleteRecursively()
+                File(context.cacheDir, "slippy_map_tiles_v2").deleteRecursively()
             } catch (_: Exception) {}
         }
     }
@@ -163,6 +156,7 @@ class MapTileProvider private constructor(context: Context) {
                 if (bitmap != null) {
                     val imageBitmap = bitmap!!.asImageBitmap()
                     memoryCache.put(cacheKey, imageBitmap)
+                    tileUpdateTrigger.value = System.currentTimeMillis()
                     onTileLoaded?.invoke()
                 }
             } catch (_: Exception) {

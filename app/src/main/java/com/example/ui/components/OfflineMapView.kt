@@ -60,6 +60,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -148,19 +149,7 @@ fun OfflineMapView(
 ) {
     val context = LocalContext.current
     val tileProvider = remember { MapTileProvider.getInstance(context) }
-    var tileRecomposeTrigger by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(tileProvider) {
-        tileProvider.onTileLoaded = {
-            tileRecomposeTrigger++
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            tileProvider.onTileLoaded = null
-        }
-    }
+    val tileRecomposeTrigger by tileProvider.tileUpdateTrigger.collectAsState()
 
     var mapTheme by remember { mutableStateOf(initialTheme) }
     var selectedPoint by remember { mutableStateOf<LocationPointEntity?>(null) }
