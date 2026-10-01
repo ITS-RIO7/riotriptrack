@@ -1,5 +1,12 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,6 +18,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -91,8 +99,40 @@ fun LiveMapScreen(
     val context = LocalContext.current
     var selectedMapTheme by remember { mutableStateOf(MapThemeMode.ROADS_AND_NAMES_ONLY) }
 
+    var hasLocationPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        val fine = perms[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
+        val coarse = perms[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
+        hasLocationPermission = fine || coarse
+        if (fine || coarse) {
+            viewModel.refreshCurrentLocation()
+        }
+    }
+
     LaunchedEffect(Unit) {
-        viewModel.refreshCurrentLocation()
+        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        hasLocationPermission = fine || coarse
+        if (!fine && !coarse) {
+            val permissionsToRequest = mutableListOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            permissionLauncher.launch(permissionsToRequest.toTypedArray())
+        } else {
+            viewModel.refreshCurrentLocation()
+        }
     }
 
     val travelModes = listOf(
@@ -146,6 +186,60 @@ fun LiveMapScreen(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Location Permission Required Alert Banner
+            if (!hasLocationPermission) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = DarkSurface.copy(alpha = 0.96f),
+                    border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.6f)),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = WarningAmber,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "GPS Location Permission Needed",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Allow location to show live GPS & vehicle position on the map.",
+                                fontSize = 11.sp,
+                                color = Color.LightGray
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                val permissionsToRequest = mutableListOf(
+                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                    Manifest.permission.ACCESS_COARSE_LOCATION
+                                )
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                                permissionLauncher.launch(permissionsToRequest.toTypedArray())
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("Enable", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
             // Power / Reboot Continuous Tracking Shield Banner
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -453,7 +547,20 @@ fun LiveMapScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = { viewModel.startTracking(initialMode = liveState.currentMode, simulate = false) },
+                            onClick = {
+                                if (hasLocationPermission) {
+                                    viewModel.startTracking(initialMode = liveState.currentMode, simulate = false)
+                                } else {
+                                    val permissionsToRequest = mutableListOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    )
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+                                    }
+                                    permissionLauncher.launch(permissionsToRequest.toTypedArray())
+                                }
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier

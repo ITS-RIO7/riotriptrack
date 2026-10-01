@@ -69,6 +69,24 @@ class MapTileProvider private constructor(context: Context) {
 
     var onTileLoaded: (() -> Unit)? = null
 
+    init {
+        // Automatically purge any old cached tiles that may contain "API key required" watermarks
+        scope.launch {
+            try {
+                diskCacheDir.listFiles()?.forEach { file ->
+                    // Purge old carto tiles
+                    if (file.name.contains("carto", ignoreCase = true) ||
+                        file.name.startsWith("ROADS_AND_NAMES_ONLY_") ||
+                        file.name.startsWith("DARK_NAV_") ||
+                        file.name.startsWith("DAYLIGHT_")
+                    ) {
+                        file.delete()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     fun getTile(
         theme: MapThemeMode,
         z: Int,
@@ -122,7 +140,7 @@ class MapTileProvider private constructor(context: Context) {
                     val url = buildTileUrl(theme, z, x, y) ?: return@launch
                     val request = Request.Builder()
                         .url(url)
-                        .header("User-Agent", "TripTracker-Android/1.0 (Mozilla/5.0 Android OpenStreetMap Tile Client)")
+                        .header("User-Agent", "RioTripTracker/1.0 (Android; Slippy Map Client; support@example.com)")
                         .build()
 
                     httpClient.newCall(request).execute().use { response ->
@@ -158,26 +176,25 @@ class MapTileProvider private constructor(context: Context) {
     }
 
     private fun buildTileUrl(theme: MapThemeMode, z: Int, x: Int, y: Int): String? {
-        val serverSubdomain = listOf("a", "b", "c", "d")[(x + y) % 4]
         return when (theme) {
             MapThemeMode.ROADS_AND_NAMES_ONLY -> {
-                // CartoDB Voyager: Super high-contrast roads, highways, and street names
-                "https://$serverSubdomain.basemaps.cartocdn.com/rastertiles/voyager/$z/$x/$y.png"
+                // Esri World Street Map: Global high-contrast roads, highways, and street names without any watermarks
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/$z/$y/$x"
             }
             MapThemeMode.SATELLITE, MapThemeMode.SATELLITE_HYBRID -> {
-                // Esri World Imagery: Real spaceborne satellite imagery of earth
+                // Esri World Imagery: Real spaceborne satellite imagery of earth (no watermark)
                 "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$z/$y/$x"
             }
             MapThemeMode.DARK_NAV -> {
-                // CartoDB Dark Matter: Beautiful OLED dark map with highlighted roads
-                "https://$serverSubdomain.basemaps.cartocdn.com/dark_all/$z/$x/$y.png"
+                // Esri World Dark Gray Base: Beautiful OLED dark map with highlighted roads (no watermark)
+                "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/$z/$y/$x"
             }
             MapThemeMode.DAYLIGHT -> {
-                // CartoDB Positron: High-clarity daylight road map
-                "https://$serverSubdomain.basemaps.cartocdn.com/light_all/$z/$x/$y.png"
+                // OpenStreetMap Standard: Community road atlas (100% free, no watermark)
+                "https://tile.openstreetmap.org/$z/$x/$y.png"
             }
             MapThemeMode.TOPO_TERRAIN -> {
-                // Esri World Topographic Map: Real elevations, contour lines, trails
+                // Esri World Topographic Map: Real elevations, contour lines, trails (no watermark)
                 "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/$z/$y/$x"
             }
             MapThemeMode.HIGH_CONTRAST -> {

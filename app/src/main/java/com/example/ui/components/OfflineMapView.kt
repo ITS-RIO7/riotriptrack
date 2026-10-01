@@ -165,7 +165,7 @@ fun OfflineMapView(
     var mapTheme by remember { mutableStateOf(initialTheme) }
     var selectedPoint by remember { mutableStateOf<LocationPointEntity?>(null) }
     var showThemeMenu by remember { mutableStateOf(false) }
-    var followUser by remember { mutableStateOf(activeLivePoint != null || currentLocationPoint != null) }
+    var followUser by remember { mutableStateOf(true) }
 
     val allPoints = remember(points, activeLivePoint) {
         if (activeLivePoint != null) points + activeLivePoint else points
@@ -175,12 +175,12 @@ fun OfflineMapView(
         allPoints.filter { it.isStayPoint }
     }
 
-    // Viewport State (Center Latitude, Center Longitude, Zoom Level)
-    var centerLat by remember { mutableDoubleStateOf(37.7749) }
-    var centerLng by remember { mutableDoubleStateOf(-122.4194) }
-    var zoom by remember { mutableFloatStateOf(14.5f) }
-
     val targetLivePoint = activeLivePoint ?: currentLocationPoint
+
+    // Viewport State (Center Latitude, Center Longitude, Zoom Level)
+    var centerLat by remember { mutableDoubleStateOf(targetLivePoint?.latitude ?: 37.7749) }
+    var centerLng by remember { mutableDoubleStateOf(targetLivePoint?.longitude ?: -122.4194) }
+    var zoom by remember { mutableFloatStateOf(15.5f) }
 
     // Helper to calculate bounds and fit points
     val fitBoundsToPoints = {
@@ -225,6 +225,10 @@ fun OfflineMapView(
                 zoom = 15.5f
                 hasInitializedCenter = true
             }
+        } else if (allPoints.isEmpty() && targetLivePoint != null && centerLat == 37.7749 && centerLng == -122.4194) {
+            centerLat = targetLivePoint.latitude
+            centerLng = targetLivePoint.longitude
+            zoom = 15.5f
         }
     }
 
@@ -769,8 +773,8 @@ fun OfflineMapView(
                     }
                 }
 
-                // Follow Me / Lock GPS Location Button (in live mode)
-                if (activeLivePoint != null) {
+                // Follow Me / Lock GPS Location Button (in live mode or watching live location)
+                if (targetLivePoint != null) {
                     Surface(
                         shape = CircleShape,
                         color = if (followUser) PrimaryBlue else DarkSurface.copy(alpha = 0.92f),
@@ -779,9 +783,9 @@ fun OfflineMapView(
                         IconButton(
                             onClick = {
                                 followUser = !followUser
-                                if (followUser && activeLivePoint != null) {
-                                    centerLat = activeLivePoint.latitude
-                                    centerLng = activeLivePoint.longitude
+                                if (followUser) {
+                                    centerLat = targetLivePoint.latitude
+                                    centerLng = targetLivePoint.longitude
                                 }
                             },
                             modifier = Modifier
