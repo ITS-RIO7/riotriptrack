@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
@@ -47,6 +50,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,8 +60,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.api.GeminiTripAiService
 import com.example.ui.dialogs.SignInDialog
 import com.example.ui.theme.AccentCyan
+import kotlinx.coroutines.launch
 import com.example.ui.theme.AccentTeal
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.DarkBackground
@@ -86,6 +92,9 @@ fun AccountScreen(
 
     var showSignInDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var isTestingGemini by remember { mutableStateOf(false) }
+    var geminiPingResponse by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = modifier
@@ -301,6 +310,153 @@ fun AccountScreen(
                                 color = SuccessGreen,
                                 modifier = Modifier.padding(10.dp)
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2b. Gemini 3.5 Flash AI Engine Status & Diagnostics Card
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "Gemini AI",
+                                tint = AccentCyan,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Text(
+                                text = "Gemini AI Copilot",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = (if (GeminiTripAiService.isKeyConfigured()) SuccessGreen else WarningAmber).copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = if (GeminiTripAiService.isKeyConfigured()) "CONNECTED" else "NEEDS KEY",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (GeminiTripAiService.isKeyConfigured()) SuccessGreen else WarningAmber,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Real-time AI telemetry analysis powered by Google Gemini 3.5 Flash. Analyzes driving style, fuel eco-efficiency, stops, and generates smart journey narratives.",
+                        fontSize = 12.5.sp,
+                        color = Color.LightGray,
+                        lineHeight = 18.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Active Model", fontSize = 12.5.sp, color = Color.Gray)
+                        Text("gemini-3.5-flash", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = AccentCyan)
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("API Key Source", fontSize = 12.5.sp, color = Color.Gray)
+                        Text(
+                            text = if (GeminiTripAiService.isKeyConfigured()) "Configured (.env / Secrets)" else "Not Set",
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (GeminiTripAiService.isKeyConfigured()) Color.White else WarningAmber
+                        )
+                    }
+
+                    if (geminiPingResponse != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = AccentCyan.copy(alpha = 0.12f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Success",
+                                    tint = AccentCyan,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = geminiPingResponse!!,
+                                    fontSize = 12.sp,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            isTestingGemini = true
+                            geminiPingResponse = null
+                            coroutineScope.launch {
+                                val res = GeminiTripAiService.testApiKey()
+                                res.onSuccess { msg ->
+                                    geminiPingResponse = msg
+                                    Toast.makeText(context, "Gemini 3.5 Flash: Connected & Active!", Toast.LENGTH_SHORT).show()
+                                }.onFailure { ex ->
+                                    geminiPingResponse = "Connection Error: ${ex.message}"
+                                    Toast.makeText(context, "Gemini Test Failed: ${ex.message}", Toast.LENGTH_LONG).show()
+                                }
+                                isTestingGemini = false
+                            }
+                        },
+                        enabled = !isTestingGemini,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("test_gemini_connection_button"),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan)
+                    ) {
+                        if (isTestingGemini) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AccentCyan, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Testing Gemini Connection...", fontSize = 12.5.sp)
+                        } else {
+                            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Ping Gemini 3.5 Flash", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }

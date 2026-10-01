@@ -236,6 +236,68 @@ class TripDetailViewModel(
         return tripRepository.exportTripAsJson(t, pts)
     }
 
+    private val _isAiAnalyzing = MutableStateFlow(false)
+    val isAiAnalyzing: StateFlow<Boolean> = _isAiAnalyzing.asStateFlow()
+
+    private val _aiError = MutableStateFlow<String?>(null)
+    val aiError: StateFlow<String?> = _aiError.asStateFlow()
+
+    private val _customAiAnswer = MutableStateFlow<String?>(null)
+    val customAiAnswer: StateFlow<String?> = _customAiAnswer.asStateFlow()
+
+    private val _isAnswering = MutableStateFlow(false)
+    val isAnswering: StateFlow<Boolean> = _isAnswering.asStateFlow()
+
+    fun generateAiInsights() {
+        val currentTrip = trip.value ?: return
+        _isAiAnalyzing.value = true
+        _aiError.value = null
+        viewModelScope.launch {
+            val result = com.example.data.api.GeminiTripAiService.analyzeTrip(
+                trip = currentTrip,
+                milestones = timelineMilestones.value
+            )
+            result.onSuccess { aiResult ->
+                val updated = currentTrip.copy(
+                    aiSummary = aiResult.summary,
+                    aiEcoScore = aiResult.ecoScore,
+                    aiStyleTag = aiResult.styleTag,
+                    aiTips = aiResult.drivingTips
+                )
+                tripRepository.updateTrip(updated)
+                _isAiAnalyzing.value = false
+            }.onFailure { ex ->
+                _aiError.value = ex.message ?: "Failed to generate AI insights."
+                _isAiAnalyzing.value = false
+            }
+        }
+    }
+
+    fun askAiQuestion(question: String) {
+        val currentTrip = trip.value ?: return
+        if (question.isBlank()) return
+        _isAnswering.value = true
+        _aiError.value = null
+        viewModelScope.launch {
+            val result = com.example.data.api.GeminiTripAiService.askTripQuestion(currentTrip, question)
+            result.onSuccess { answer ->
+                _customAiAnswer.value = answer
+                _isAnswering.value = false
+            }.onFailure { ex ->
+                _aiError.value = ex.message ?: "Failed to answer question."
+                _isAnswering.value = false
+            }
+        }
+    }
+
+    fun clearAiError() {
+        _aiError.value = null
+    }
+
+    fun clearCustomAnswer() {
+        _customAiAnswer.value = null
+    }
+
     override fun onCleared() {
         super.onCleared()
         playbackJob?.cancel()

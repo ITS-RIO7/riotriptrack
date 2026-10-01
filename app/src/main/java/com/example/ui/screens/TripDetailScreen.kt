@@ -27,11 +27,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Flight
@@ -40,23 +42,32 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Train
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -116,11 +127,16 @@ fun TripDetailScreen(
     val selectedPoint by viewModel.selectedPoint.collectAsState()
     val timelineMilestones by viewModel.timelineMilestones.collectAsState()
     val selectedMilestone by viewModel.selectedMilestone.collectAsState()
+    val isAiAnalyzing by viewModel.isAiAnalyzing.collectAsState()
+    val aiError by viewModel.aiError.collectAsState()
+    val customAiAnswer by viewModel.customAiAnswer.collectAsState()
+    val isAnswering by viewModel.isAnswering.collectAsState()
 
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var isMapExpanded by remember { mutableStateOf(false) }
+    var questionInput by remember { mutableStateOf("") }
 
     val context = LocalContext.current
 
@@ -387,6 +403,414 @@ fun TripDetailScreen(
                         tint = PurpleAccent,
                         modifier = Modifier.weight(1f)
                     )
+                }
+            }
+
+            // 2b. Rio Gemini AI Trip Copilot & Telemetry Insights Card
+            item {
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                    border = BorderStroke(1.dp, if (currentTrip.aiSummary.isNotBlank()) AccentCyan.copy(alpha = 0.4f) else DarkBorder),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("ai_trip_copilot_card")
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        // Header Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(AccentCyan.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = "Gemini AI",
+                                        tint = AccentCyan,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = "Rio AI Trip Copilot",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = "Gemini 3.5 Flash Telemetry Analysis",
+                                        fontSize = 11.sp,
+                                        color = AccentTeal
+                                    )
+                                }
+                            }
+
+                            if (currentTrip.aiSummary.isNotBlank()) {
+                                IconButton(
+                                    onClick = { viewModel.generateAiInsights() },
+                                    enabled = !isAiAnalyzing,
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .testTag("refresh_ai_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Re-analyze",
+                                        tint = AccentCyan,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // If not yet analyzed
+                        if (currentTrip.aiSummary.isBlank()) {
+                            Text(
+                                text = "Analyze your full trip telemetry with Google Gemini 3.5 Flash: driving efficiency score, speed discipline, route story, and custom travel tips.",
+                                fontSize = 13.sp,
+                                color = Color.LightGray,
+                                lineHeight = 19.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Button(
+                                onClick = { viewModel.generateAiInsights() },
+                                enabled = !isAiAnalyzing,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("generate_ai_insights_button")
+                            ) {
+                                if (isAiAnalyzing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text("Analyzing Route with Gemini...", fontSize = 13.sp)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Generate AI Trip Analysis", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                            }
+                        } else {
+                            // Analyzed Result View
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                // Eco Score Badge
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = SuccessGreen.copy(alpha = 0.15f),
+                                    border = BorderStroke(1.dp, SuccessGreen.copy(alpha = 0.3f)),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Eco,
+                                            contentDescription = "Eco Score",
+                                            tint = SuccessGreen,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Column {
+                                            Text("ECO EFFICIENCY", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = SuccessGreen)
+                                            Text(
+                                                text = "${currentTrip.aiEcoScore}/100",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Style Tag Badge
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = PurpleAccent.copy(alpha = 0.15f),
+                                    border = BorderStroke(1.dp, PurpleAccent.copy(alpha = 0.3f)),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Psychology,
+                                            contentDescription = "Style",
+                                            tint = PurpleAccent,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Column {
+                                            Text("DRIVING STYLE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = PurpleAccent)
+                                            Text(
+                                                text = currentTrip.aiStyleTag.ifBlank { "Cruiser" },
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // AI Summary Text
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = DarkBackground,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = currentTrip.aiSummary,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFFE2E8F0),
+                                    lineHeight = 19.sp,
+                                    modifier = Modifier.padding(14.dp)
+                                )
+                            }
+
+                            // AI Driving Tips if present
+                            if (currentTrip.aiTips.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = AccentCyan.copy(alpha = 0.08f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text(
+                                            text = "💡 Copilot Driving Recommendations",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AccentCyan
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = currentTrip.aiTips,
+                                            fontSize = 12.sp,
+                                            color = Color.LightGray,
+                                            lineHeight = 17.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (isAiAnalyzing) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AccentCyan, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Re-analyzing route telemetry...", fontSize = 12.sp, color = AccentCyan)
+                                }
+                            }
+                        }
+
+                        // Error Banner if any
+                        if (aiError != null) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = DangerRed.copy(alpha = 0.15f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = "Error",
+                                        tint = DangerRed,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = aiError!!,
+                                        fontSize = 12.sp,
+                                        color = DangerRed,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    TextButton(onClick = { viewModel.clearAiError() }) {
+                                        Text("Dismiss", fontSize = 11.sp, color = Color.White)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Interactive "Ask Gemini Copilot" section
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "Ask Gemini About This Trip",
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Quick Question Chips
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            SuggestionChip(
+                                onClick = {
+                                    questionInput = "How can I improve fuel efficiency on this route?"
+                                    viewModel.askAiQuestion(questionInput)
+                                },
+                                label = { Text("Fuel Tips", fontSize = 11.sp) },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = DarkBackground,
+                                    labelColor = AccentCyan
+                                )
+                            )
+                            SuggestionChip(
+                                onClick = {
+                                    questionInput = "Write a travel caption for this route."
+                                    viewModel.askAiQuestion(questionInput)
+                                },
+                                label = { Text("Trip Caption", fontSize = 11.sp) },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = DarkBackground,
+                                    labelColor = PurpleAccent
+                                )
+                            )
+                            SuggestionChip(
+                                onClick = {
+                                    questionInput = "How was my speed discipline?"
+                                    viewModel.askAiQuestion(questionInput)
+                                },
+                                label = { Text("Pace Review", fontSize = 11.sp) },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = DarkBackground,
+                                    labelColor = SuccessGreen
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Question Input Field & Send
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = questionInput,
+                                onValueChange = { questionInput = it },
+                                placeholder = { Text("Ask anything about this trip...", fontSize = 12.sp, color = Color.Gray) },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("ai_question_input"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = DarkBackground,
+                                    unfocusedContainerColor = DarkBackground,
+                                    focusedBorderColor = AccentCyan,
+                                    unfocusedBorderColor = DarkBorder,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+
+                            IconButton(
+                                onClick = {
+                                    if (questionInput.isNotBlank() && !isAnswering) {
+                                        viewModel.askAiQuestion(questionInput)
+                                    }
+                                },
+                                enabled = questionInput.isNotBlank() && !isAnswering,
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (questionInput.isNotBlank() && !isAnswering) PrimaryBlue else DarkBorder)
+                                    .testTag("send_ai_question_button")
+                            ) {
+                                if (isAnswering) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Send,
+                                        contentDescription = "Send",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Answer View
+                        if (customAiAnswer != null) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = PrimaryBlue.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, PrimaryBlue.copy(alpha = 0.3f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Rio Copilot Answer",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = PrimaryBlueLight
+                                        )
+                                        TextButton(onClick = { viewModel.clearCustomAnswer() }) {
+                                            Text("Clear", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = customAiAnswer!!,
+                                        fontSize = 12.5.sp,
+                                        color = Color.White,
+                                        lineHeight = 18.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

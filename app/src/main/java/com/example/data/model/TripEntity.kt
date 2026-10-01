@@ -21,5 +21,9 @@ data class TripEntity(
     val stayCount: Int = 0,
     val totalStayDurationMs: Long = 0L,
     val startLocationName: String = "",
-    val endLocationName: String = ""
+    val endLocationName: String = "",
+    val aiSummary: String = "",
+    val aiEcoScore: Int = 0,
+    val aiStyleTag: String = "",
+    val aiTips: String = ""
 )

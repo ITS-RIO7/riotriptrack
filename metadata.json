@@ -1,6 +1,6 @@
 {
   "name": "Rio Trip Tracker",
-  "description": "Real-time Rio GPS route tracker with live location, route timeline, speed stats, stay duration analysis, and cloud backup.",
+  "description": "Real-time Rio GPS route tracker with live location, route timeline, speed stats, stay duration analysis, cloud backup, and Gemini AI trip copilot.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

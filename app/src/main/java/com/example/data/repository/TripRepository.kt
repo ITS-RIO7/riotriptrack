@@ -168,6 +168,10 @@ class TripRepository(
         )
     }
 
+    suspend fun updateTrip(trip: TripEntity) = withContext(Dispatchers.IO) {
+        tripDao.updateTrip(trip)
+    }
+
     suspend fun deleteTrip(tripId: Long) = withContext(Dispatchers.IO) {
         locationPointDao.deletePointsForTrip(tripId)
         tripDao.deleteTripById(tripId)
