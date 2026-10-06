@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.PlayArrow
@@ -33,6 +34,9 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -41,10 +45,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -95,6 +103,10 @@ fun AccountScreen(
     val coroutineScope = rememberCoroutineScope()
     var isTestingGemini by remember { mutableStateOf(false) }
     var geminiPingResponse by remember { mutableStateOf<String?>(null) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+    var inputApiKey by remember { mutableStateOf("") }
+    var isApiKeyVisible by remember { mutableStateOf(false) }
+    var localKeyVersion by remember { mutableStateOf(0) }
 
     LazyColumn(
         modifier = modifier
@@ -349,13 +361,13 @@ fun AccountScreen(
 
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = (if (GeminiTripAiService.isKeyConfigured()) SuccessGreen else WarningAmber).copy(alpha = 0.2f)
+                            color = (if (GeminiTripAiService.isKeyConfigured(context)) SuccessGreen else AccentCyan).copy(alpha = 0.2f)
                         ) {
                             Text(
-                                text = if (GeminiTripAiService.isKeyConfigured()) "CONNECTED" else "NEEDS KEY",
+                                text = if (GeminiTripAiService.isKeyConfigured(context)) "READY" else "FREE OFFLINE",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (GeminiTripAiService.isKeyConfigured()) SuccessGreen else WarningAmber,
+                                color = if (GeminiTripAiService.isKeyConfigured(context)) SuccessGreen else AccentCyan,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
@@ -364,7 +376,7 @@ fun AccountScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "Real-time AI telemetry analysis powered by Google Gemini 3.5 Flash. Analyzes driving style, fuel eco-efficiency, stops, and generates smart journey narratives.",
+                        text = "100% of GPS tracking, live map tiles, background recording, and speed stats are free and work offline. Gemini AI is an optional add-on for route narratives and eco-driving tips.",
                         fontSize = 12.5.sp,
                         color = Color.LightGray,
                         lineHeight = 18.sp
@@ -388,12 +400,12 @@ fun AccountScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("API Key Source", fontSize = 12.5.sp, color = Color.Gray)
+                        Text("API Key Security", fontSize = 12.5.sp, color = Color.Gray)
                         Text(
-                            text = if (GeminiTripAiService.isKeyConfigured()) "Configured (.env / Secrets)" else "Not Set",
+                            text = GeminiTripAiService.getMaskedApiKey(context),
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (GeminiTripAiService.isKeyConfigured()) Color.White else WarningAmber
+                            color = if (GeminiTripAiService.isKeyConfigured(context)) SuccessGreen else Color.LightGray
                         )
                     }
 
@@ -426,37 +438,55 @@ fun AccountScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    OutlinedButton(
-                        onClick = {
-                            isTestingGemini = true
-                            geminiPingResponse = null
-                            coroutineScope.launch {
-                                val res = GeminiTripAiService.testApiKey()
-                                res.onSuccess { msg ->
-                                    geminiPingResponse = msg
-                                    Toast.makeText(context, "Gemini 3.5 Flash: Connected & Active!", Toast.LENGTH_SHORT).show()
-                                }.onFailure { ex ->
-                                    geminiPingResponse = "Connection Error: ${ex.message}"
-                                    Toast.makeText(context, "Gemini Test Failed: ${ex.message}", Toast.LENGTH_LONG).show()
-                                }
-                                isTestingGemini = false
-                            }
-                        },
-                        enabled = !isTestingGemini,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("test_gemini_connection_button"),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (isTestingGemini) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AccentCyan, strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Testing Gemini Connection...", fontSize = 12.5.sp)
-                        } else {
-                            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                        OutlinedButton(
+                            onClick = {
+                                inputApiKey = GeminiTripAiService.getStoredApiKey(context)
+                                isApiKeyVisible = false
+                                showApiKeyDialog = true
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        ) {
+                            Icon(imageVector = Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Ping Gemini 3.5 Flash", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Set API Key", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+
+                        Button(
+                            onClick = {
+                                isTestingGemini = true
+                                geminiPingResponse = null
+                                coroutineScope.launch {
+                                    val res = GeminiTripAiService.testApiKey(context)
+                                    res.onSuccess { msg ->
+                                        geminiPingResponse = msg
+                                        Toast.makeText(context, "Gemini AI: Connected & Active!", Toast.LENGTH_SHORT).show()
+                                    }.onFailure { ex ->
+                                        geminiPingResponse = "Status: ${ex.message}"
+                                        Toast.makeText(context, "Notice: ${ex.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                    isTestingGemini = false
+                                }
+                            },
+                            enabled = !isTestingGemini,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
+                        ) {
+                            if (isTestingGemini) {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Testing...", fontSize = 12.sp)
+                            } else {
+                                Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Test AI", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
@@ -586,6 +616,82 @@ fun AccountScreen(
                 viewModel.signInWithEmail(email, name)
                 showSignInDialog = false
                 Toast.makeText(context, "Signed in as $name ($email)!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    if (showApiKeyDialog) {
+        AlertDialog(
+            onDismissRequest = { showApiKeyDialog = false },
+            containerColor = DarkSurface,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(imageVector = Icons.Default.Key, contentDescription = null, tint = AccentCyan)
+                    Text("Gemini API Key (Optional)", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Rio Trip Tracker works 100% offline with GPS tracking, live map tiles, route timelines, and vehicle stats without any API key.\n\nIf you want AI trip summaries, you can optionally paste your personal Gemini API key here. It will be stored exclusively in private on-device storage.",
+                        fontSize = 12.sp,
+                        color = Color.LightGray
+                    )
+                    OutlinedTextField(
+                        value = inputApiKey,
+                        onValueChange = { inputApiKey = it },
+                        label = { Text("Gemini API Key (AIza...)") },
+                        singleLine = true,
+                        visualTransformation = if (isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { isApiKeyVisible = !isApiKeyVisible }) {
+                                Icon(
+                                    imageVector = if (isApiKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (isApiKeyVisible) "Hide key" else "Show key",
+                                    tint = Color.LightGray
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (inputApiKey.isNotBlank()) {
+                            GeminiTripAiService.saveStoredApiKey(context, inputApiKey)
+                            Toast.makeText(context, "API Key saved securely on device!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            GeminiTripAiService.clearStoredApiKey(context)
+                        }
+                        localKeyVersion++
+                        showApiKeyDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (GeminiTripAiService.getStoredApiKey(context).isNotBlank()) {
+                        OutlinedButton(
+                            onClick = {
+                                GeminiTripAiService.clearStoredApiKey(context)
+                                inputApiKey = ""
+                                localKeyVersion++
+                                Toast.makeText(context, "API Key removed.", Toast.LENGTH_SHORT).show()
+                                showApiKeyDialog = false
+                            }
+                        ) {
+                            Text("Remove", color = DangerRed)
+                        }
+                    }
+                    OutlinedButton(onClick = { showApiKeyDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
             }
         )
     }

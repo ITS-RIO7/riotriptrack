@@ -1008,7 +1008,8 @@ private fun DrawScope.drawSlippyMapTiles(
     width: Float,
     height: Float
 ) {
-    val tileZoom = zoom.toInt().coerceIn(0, 19)
+    val maxNative = MapTileProvider.getMaxNativeZoom(theme)
+    val tileZoom = zoom.toInt().coerceIn(0, maxNative)
     val scaleDiff = 2.0.pow((zoom - tileZoom).toDouble())
     val tileDisplaySize = (256.0 * scaleDiff).toFloat()
 

@@ -1,5 +1,6 @@
 package com.example.data.api
 
+import android.content.Context
 import android.util.Log
 import com.example.BuildConfig
 import com.example.data.model.TripEntity
@@ -29,6 +30,8 @@ object GeminiTripAiService {
     private const val TAG = "GeminiTripAi"
     private const val MODEL_NAME = "gemini-3.5-flash"
     private const val BASE_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL_NAME:generateContent"
+    private const val PREFS_NAME = "rio_trip_secure_prefs"
+    private const val KEY_CUSTOM_API_KEY = "custom_gemini_api_key"
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
@@ -36,27 +39,60 @@ object GeminiTripAiService {
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    fun getEffectiveApiKey(): String {
+    fun getStoredApiKey(context: Context): String {
         return try {
-            BuildConfig.GEMINI_API_KEY.trim()
-        } catch (e: Exception) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.getString(KEY_CUSTOM_API_KEY, "")?.trim() ?: ""
+        } catch (_: Exception) {
             ""
         }
     }
 
-    fun isKeyConfigured(): Boolean {
-        val key = getEffectiveApiKey()
+    fun saveStoredApiKey(context: Context, key: String) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putString(KEY_CUSTOM_API_KEY, key.trim()).apply()
+        } catch (_: Exception) {}
+    }
+
+    fun clearStoredApiKey(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().remove(KEY_CUSTOM_API_KEY).apply()
+        } catch (_: Exception) {}
+    }
+
+    fun getEffectiveApiKey(context: Context? = null): String {
+        if (context != null) {
+            val userKey = getStoredApiKey(context)
+            if (userKey.isNotBlank()) return userKey
+        }
+        return try {
+            val configKey = BuildConfig.GEMINI_API_KEY.trim()
+            if (configKey.isNotBlank() && configKey != "MY_GEMINI_API_KEY") configKey else ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    fun isKeyConfigured(context: Context? = null): Boolean {
+        val key = getEffectiveApiKey(context)
         return key.isNotBlank() && key != "MY_GEMINI_API_KEY"
     }
 
-    suspend fun testApiKey(customKey: String? = null): Result<String> = withContext(Dispatchers.IO) {
-        val keyToUse = customKey?.takeIf { it.isNotBlank() } ?: getEffectiveApiKey()
+    fun getMaskedApiKey(context: Context? = null): String {
+        val key = getEffectiveApiKey(context)
+        if (key.isBlank() || key == "MY_GEMINI_API_KEY") return "Not Configured (Optional)"
+        return "•••••••••••••••• (Encrypted & Protected)"
+    }
+
+    suspend fun testApiKey(context: Context? = null, customKey: String? = null): Result<String> = withContext(Dispatchers.IO) {
+        val keyToUse = customKey?.takeIf { it.isNotBlank() } ?: getEffectiveApiKey(context)
         if (keyToUse.isBlank() || keyToUse == "MY_GEMINI_API_KEY") {
-            return@withContext Result.failure(IllegalStateException("Gemini API key is not configured."))
+            return@withContext Result.failure(IllegalStateException("No Gemini API key configured. You can optionally enter your own API key in Account settings."))
         }
 
         try {
-            val url = "$BASE_ENDPOINT?key=$keyToUse"
             val payload = JSONObject().apply {
                 put("contents", JSONArray().apply {
                     put(JSONObject().apply {
@@ -75,7 +111,8 @@ object GeminiTripAiService {
 
             val requestBody = payload.toString().toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
-                .url(url)
+                .url(BASE_ENDPOINT)
+                .header("x-goog-api-key", keyToUse)
                 .post(requestBody)
                 .build()
 
@@ -91,18 +128,19 @@ object GeminiTripAiService {
             Result.success(text.ifBlank { "Gemini API connected successfully!" })
         } catch (e: Exception) {
             Log.e(TAG, "Connection test failed", e)
-            Result.failure(e)
+            Result.failure(Exception(sanitizeError(e.message ?: "Connection failed")))
         }
     }
 
     suspend fun analyzeTrip(
         trip: TripEntity,
-        milestones: List<TripTimelineMilestone>
+        milestones: List<TripTimelineMilestone>,
+        context: Context? = null
     ): Result<TripAiResult> = withContext(Dispatchers.IO) {
-        val keyToUse = getEffectiveApiKey()
+        val keyToUse = getEffectiveApiKey(context)
         if (keyToUse.isBlank() || keyToUse == "MY_GEMINI_API_KEY") {
             return@withContext Result.failure(
-                IllegalStateException("Gemini API key not found. Please verify your API key in Secrets panel.")
+                IllegalStateException("Gemini API key is not configured. You can optionally set your personal API key in Account settings.")
             )
         }
 
@@ -150,7 +188,6 @@ object GeminiTripAiService {
         """.trimIndent()
 
         try {
-            val url = "$BASE_ENDPOINT?key=$keyToUse"
             val payload = JSONObject().apply {
                 put("contents", JSONArray().apply {
                     put(JSONObject().apply {
@@ -170,7 +207,8 @@ object GeminiTripAiService {
 
             val requestBody = payload.toString().toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
-                .url(url)
+                .url(BASE_ENDPOINT)
+                .header("x-goog-api-key", keyToUse)
                 .post(requestBody)
                 .build()
 
@@ -187,17 +225,18 @@ object GeminiTripAiService {
             Result.success(parsed)
         } catch (e: Exception) {
             Log.e(TAG, "Error analyzing trip with Gemini", e)
-            Result.failure(e)
+            Result.failure(Exception(sanitizeError(e.message ?: "Failed to analyze trip")))
         }
     }
 
     suspend fun askTripQuestion(
         trip: TripEntity,
-        question: String
+        question: String,
+        context: Context? = null
     ): Result<String> = withContext(Dispatchers.IO) {
-        val keyToUse = getEffectiveApiKey()
+        val keyToUse = getEffectiveApiKey(context)
         if (keyToUse.isBlank() || keyToUse == "MY_GEMINI_API_KEY") {
-            return@withContext Result.failure(IllegalStateException("Gemini API key is not configured."))
+            return@withContext Result.failure(IllegalStateException("Gemini API key is not configured. You can optionally set your personal API key in Account settings."))
         }
 
         val distanceKm = trip.distanceMeters / 1000.0
@@ -226,7 +265,6 @@ object GeminiTripAiService {
         """.trimIndent()
 
         try {
-            val url = "$BASE_ENDPOINT?key=$keyToUse"
             val payload = JSONObject().apply {
                 put("contents", JSONArray().apply {
                     put(JSONObject().apply {
@@ -245,7 +283,8 @@ object GeminiTripAiService {
 
             val requestBody = payload.toString().toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
-                .url(url)
+                .url(BASE_ENDPOINT)
+                .header("x-goog-api-key", keyToUse)
                 .post(requestBody)
                 .build()
 
@@ -253,14 +292,14 @@ object GeminiTripAiService {
             val rawBody = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                return@withContext Result.failure(Exception(parseErrorMessage(rawBody, response.code)))
+                return@withContext Result.failure(Exception(sanitizeError(parseErrorMessage(rawBody, response.code))))
             }
 
             val answer = parseGeneratedText(rawBody)
             Result.success(answer)
         } catch (e: Exception) {
             Log.e(TAG, "Error in askTripQuestion", e)
-            Result.failure(e)
+            Result.failure(Exception(sanitizeError(e.message ?: "Failed to answer question")))
         }
     }
 
@@ -330,9 +369,14 @@ object GeminiTripAiService {
             val json = JSONObject(rawBody)
             val error = json.optJSONObject("error")
             val msg = error?.optString("message") ?: "HTTP $code"
-            "Gemini API Error ($code): $msg"
+            "Gemini API Error ($code): ${sanitizeError(msg)}"
         } catch (e: Exception) {
             "Gemini API Error (HTTP $code)"
         }
+    }
+
+    fun sanitizeError(msg: String): String {
+        return msg.replace(Regex("AIza[0-9A-Za-z\\-_]{35}"), "••••••••")
+            .replace(Regex("key=[^&\\s]+"), "key=••••••••")
     }
 }

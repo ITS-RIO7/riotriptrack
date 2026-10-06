@@ -255,7 +255,8 @@ class TripDetailViewModel(
         viewModelScope.launch {
             val result = com.example.data.api.GeminiTripAiService.analyzeTrip(
                 trip = currentTrip,
-                milestones = timelineMilestones.value
+                milestones = timelineMilestones.value,
+                context = getApplication()
             )
             result.onSuccess { aiResult ->
                 val updated = currentTrip.copy(
@@ -279,7 +280,7 @@ class TripDetailViewModel(
         _isAnswering.value = true
         _aiError.value = null
         viewModelScope.launch {
-            val result = com.example.data.api.GeminiTripAiService.askTripQuestion(currentTrip, question)
+            val result = com.example.data.api.GeminiTripAiService.askTripQuestion(currentTrip, question, getApplication())
             result.onSuccess { answer ->
                 _customAiAnswer.value = answer
                 _isAnswering.value = false

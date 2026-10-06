@@ -54,7 +54,7 @@ object MercatorProjection {
 class MapTileProvider private constructor(context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val diskCacheDir = File(context.cacheDir, "slippy_tiles_v3").apply { mkdirs() }
+    private val diskCacheDir = File(context.cacheDir, "slippy_tiles_v4").apply { mkdirs() }
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -76,6 +76,7 @@ class MapTileProvider private constructor(context: Context) {
             try {
                 File(context.cacheDir, "slippy_map_tiles").deleteRecursively()
                 File(context.cacheDir, "slippy_map_tiles_v2").deleteRecursively()
+                File(context.cacheDir, "slippy_tiles_v3").deleteRecursively()
             } catch (_: Exception) {}
         }
     }
@@ -86,23 +87,29 @@ class MapTileProvider private constructor(context: Context) {
         x: Int,
         y: Int
     ): ImageBitmap? {
-        val maxCoord = 1 shl z
-        if (x < 0 || x >= maxCoord || y < 0 || y >= maxCoord) return null
+        // Clamp to maximum native zoom level so providers never receive out-of-bounds requests
+        val effectiveZ = z.coerceAtMost(MAX_NATIVE_ZOOM)
+        val diff = z - effectiveZ
+        val effectiveX = if (diff > 0) x shr diff else x
+        val effectiveY = if (diff > 0) y shr diff else y
 
-        val cacheKey = "${theme.name}_${z}_${x}_${y}"
+        val maxCoord = 1 shl effectiveZ
+        if (effectiveX < 0 || effectiveX >= maxCoord || effectiveY < 0 || effectiveY >= maxCoord) return null
+
+        val cacheKey = "${theme.name}_${effectiveZ}_${effectiveX}_${effectiveY}"
 
         // 1. Check RAM Cache
         val cached = memoryCache.get(cacheKey)
         if (cached != null) return cached
 
         // 2. Fetch from Disk or Network
-        requestTileAsync(theme, z, x, y, cacheKey)
+        requestTileAsync(theme, effectiveZ, effectiveX, effectiveY, cacheKey)
 
         // 3. Fallback: try to find lower-zoom parent tile in cache as placeholder
-        if (z > 2) {
-            val parentZ = z - 1
-            val parentX = x / 2
-            val parentY = y / 2
+        if (effectiveZ > 2) {
+            val parentZ = effectiveZ - 1
+            val parentX = effectiveX / 2
+            val parentY = effectiveY / 2
             val parentKey = "${theme.name}_${parentZ}_${parentX}_${parentY}"
             val parentTile = memoryCache.get(parentKey)
             if (parentTile != null) return parentTile
@@ -126,27 +133,38 @@ class MapTileProvider private constructor(context: Context) {
                 var bitmap: Bitmap? = null
 
                 if (diskFile.exists() && diskFile.length() > 200) {
-                    bitmap = BitmapFactory.decodeFile(diskFile.absolutePath)
+                    // Check if file is the Esri placeholder error tile
+                    if (diskFile.length() == 2521L || diskFile.length() == 2421L) {
+                        diskFile.delete()
+                    } else {
+                        bitmap = BitmapFactory.decodeFile(diskFile.absolutePath)
+                    }
                 }
 
                 if (bitmap == null) {
                     val url = buildTileUrl(theme, z, x, y) ?: return@launch
                     val request = Request.Builder()
                         .url(url)
-                        .header("User-Agent", "RioTripTracker/1.0 (Android; Slippy Map Client; support@example.com)")
+                        .header("User-Agent", "RioTripTracker/2.0 (com.aistudio.triptracker; Android Slippy Map)")
                         .build()
 
                     httpClient.newCall(request).execute().use { response ->
                         if (response.isSuccessful) {
                             val bytes = response.body?.bytes()
                             if (bytes != null && bytes.isNotEmpty()) {
-                                bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                                if (bitmap != null) {
-                                    try {
-                                        FileOutputStream(diskFile).use { fos ->
-                                            fos.write(bytes)
-                                        }
-                                    } catch (_: Exception) {}
+                                // Reject Esri's dummy "Map data not yet available" placeholder JPEG
+                                val isDummyPlaceholder = (bytes.size in 2400..2650) &&
+                                    (response.header("ETag")?.contains("1s4u7l9lo7u68") == true || bytes.size == 2521 || bytes.size == 2421)
+
+                                if (!isDummyPlaceholder) {
+                                    bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                    if (bitmap != null) {
+                                        try {
+                                            FileOutputStream(diskFile).use { fos ->
+                                                fos.write(bytes)
+                                            }
+                                        } catch (_: Exception) {}
+                                    }
                                 }
                             }
                         }
@@ -170,30 +188,31 @@ class MapTileProvider private constructor(context: Context) {
     }
 
     private fun buildTileUrl(theme: MapThemeMode, z: Int, x: Int, y: Int): String? {
+        val clampedZ = z.coerceAtMost(MAX_NATIVE_ZOOM)
         return when (theme) {
             MapThemeMode.ROADS_AND_NAMES_ONLY -> {
                 // Esri World Street Map: Global high-contrast roads, highways, and street names without any watermarks
-                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/$z/$y/$x"
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/$clampedZ/$y/$x"
             }
             MapThemeMode.SATELLITE, MapThemeMode.SATELLITE_HYBRID -> {
                 // Esri World Imagery: Real spaceborne satellite imagery of earth (no watermark)
-                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$z/$y/$x"
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$clampedZ/$y/$x"
             }
             MapThemeMode.DARK_NAV -> {
                 // Esri World Dark Gray Base: Beautiful OLED dark map with highlighted roads (no watermark)
-                "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/$z/$y/$x"
+                "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/$clampedZ/$y/$x"
             }
             MapThemeMode.DAYLIGHT -> {
                 // OpenStreetMap Standard: Community road atlas (100% free, no watermark)
-                "https://tile.openstreetmap.org/$z/$x/$y.png"
+                "https://tile.openstreetmap.org/$clampedZ/$x/$y.png"
             }
             MapThemeMode.TOPO_TERRAIN -> {
                 // Esri World Topographic Map: Real elevations, contour lines, trails (no watermark)
-                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/$z/$y/$x"
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/$clampedZ/$y/$x"
             }
             MapThemeMode.HIGH_CONTRAST -> {
                 // OpenStreetMap Standard
-                "https://tile.openstreetmap.org/$z/$x/$y.png"
+                "https://tile.openstreetmap.org/$clampedZ/$x/$y.png"
             }
         }
     }
@@ -208,6 +227,12 @@ class MapTileProvider private constructor(context: Context) {
     }
 
     companion object {
+        const val MAX_NATIVE_ZOOM = 16
+
+        fun getMaxNativeZoom(theme: MapThemeMode): Int {
+            return MAX_NATIVE_ZOOM
+        }
+
         @Volatile
         private var instance: MapTileProvider? = null
 
